@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Zagent Chrome Bridge</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+<header><span class="mark">Z</span><div><h1>Zagent Chrome Bridge</h1><p>Profile-bound native Chrome access</p></div></header>
+<main>
+  <section class="status">
+    <span id="dot"></span>
+    <strong id="connection">Checking connection...</strong>
+    <p id="native">Native CDP engine</p>
+    <p id="profile">Checking Chrome profile...</p>
+    <p id="lease">No authorization</p>
+    <p id="error" role="alert"></p>
+  </section>
+
+  <section id="pair-request-box">
+    <strong>Profile pairing</strong>
+    <p id="pair-request-text" class="hint">No pairing request from ChatGPT.</p>
+    <button id="pair-request" class="primary">Pair this Chrome profile</button>
+  </section>
+
+  <section id="auth-request-box">
+    <strong>Automation request</strong>
+    <p id="auth-request-text" class="hint">No automation request.</p>
+    <button id="approve-request" class="primary">Approve requested access</button>
+  </section>
+
+  <details>
+    <summary>Manual pairing fallback</summary>
+    <form id="pair-form">
+      <label for="code">One-use pairing code</label>
+      <div class="row"><input id="code" type="password" autocomplete="off" placeholder="Legacy pairing code"><button>Pair</button></div>
+    </form>
+  </details>
+
+  <form id="grant-form">
+    <label for="scope">Manual access scope</label>
+    <select id="scope"><option value="tab">This tab</option><option value="window" selected>This window</option><option value="all">All windows</option></select>
+    <label for="duration">Permission duration</label>
+    <select id="duration"><option value="900" selected>15 minutes</option><option value="1800">30 minutes</option><option value="0">No time limit</option></select>
+    <label><input id="allow-navigation" type="checkbox" checked> Allow navigation in authorized tabs</label>
+    <label><input id="allow-new-tabs" type="checkbox" checked> Allow new tabs in window/all scope</label>
+    <button id="grant">Authorize selected scope</button>
+  </form>
+
+  <div class="row controls"><button id="revoke" class="danger">Revoke access</button><button id="disconnect">Disconnect profile</button></div>
+  <p class="hint">Revoke removes only the current automation lease. Disconnect removes the trusted binding for this Chrome profile. Other Chrome profiles cannot reuse this profile's trusted reconnect.</p>
+  <footer>Zagent Web - 127.0.0.3:19030 - Bridge 1.3.3 <button id="refresh">Refresh</button></footer>
+</main>
+<script src="popup.js"></script>
+</body>
+</html>

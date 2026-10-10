@@ -1,0 +1,20 @@
+{
+  "safe_mode": false,
+  "allow_live_write": true,
+  "allow_save": true,
+  "allow_destructive_operations": true,
+  "allow_geoprocessing": true,
+  "allow_export": true,
+  "require_health_check": true,
+  "ipc_poll_ms": 500,
+  "command_timeout_seconds": 15,
+  "archive_ipc": true,
+  "max_title_length": 240,
+  "default_export_dpi": 400,
+  "default_export_formats": [
+    "PDF",
+    "PNG"
+  ],
+  "default_output_folder": "Hasil Peta",
+  "default_naming": "PETA A4 <nama perusahaan> – <jenis peta>"
+}
