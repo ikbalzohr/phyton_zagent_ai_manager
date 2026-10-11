@@ -6,6 +6,8 @@ performed. New output only, no overwrite and no current MXD save.
 """
 from __future__ import division
 import csv
+import io
+import sys
 import math
 import os
 import re
@@ -78,7 +80,10 @@ def _photo_point(path):
 
 def _csv_points(path, x_field, y_field, label_field, delimiter, max_rows):
     result = []
-    with open(path, "rb") as stream:
+    # Python 2 csv expects bytes; Python 3 csv expects decoded text.
+    stream = (io.open(path, "r", encoding="utf-8-sig", newline="")
+              if sys.version_info[0] >= 3 else open(path, "rb"))
+    with stream:
         reader = csv.DictReader(stream, delimiter=delimiter)
         if not reader.fieldnames:
             raise ValueError("CSV must contain a header")

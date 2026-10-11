@@ -47,7 +47,7 @@ def layer_descriptor(url, limit=8388608):
         response.close()
     if not content or len(content) > limit:
         raise RuntimeError("MapServer layer descriptor is empty or too large")
-    if content.lstrip()[:1] in ("<", "{", "["):
+    if content.lstrip()[:1] in (b"<", b"{", b"["): 
         raise RuntimeError("Server did not return a binary ArcMap .lyr descriptor")
     return content
 
