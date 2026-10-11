@@ -4,6 +4,7 @@ import os
 import sys
 import traceback
 from .registry import get, names, ACTIONS
+from . import concurrent_edit_guard
 
 # Import built-in feature modules for registration side effects.
 from features import connection
@@ -32,6 +33,12 @@ from features import native_layer_properties
 from features import native_grids
 from features import smart_corner
 from features import analytics
+from features import concurrent_edit
+from features import native_label_preset
+from features import gis_server_connector
+from features import native_scale_bar
+from features import calculate_geometry
+from features import smart_coordinate_importer
 
 # Engine root is derived from the installed Zagent ArcMap package.
 WORK_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -101,6 +108,11 @@ def dispatch(command):
             "request_id": request_id
         }
     try:
+        blocked = concurrent_edit_guard.reject_mutation(command)
+        if blocked:
+            blocked['action'] = action_name
+            blocked['request_id'] = request_id
+            return blocked
         payload = func(command)
         if not isinstance(payload, dict):
             payload = {"ok": True, "result": payload}
