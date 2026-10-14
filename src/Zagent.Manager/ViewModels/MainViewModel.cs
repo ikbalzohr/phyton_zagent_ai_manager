@@ -38,6 +38,11 @@ public sealed class MainViewModel : ObservableObject
     private int _pendingApprovals;
     private bool _webBridgeConnected;
     private bool _webBridgeAuthorized;
+    private bool _chromePersistentConsent;
+    private bool _chromeReconnectAvailable;
+    private int _chromeApprovedTabCount;
+    private string _selectedChromeProfile = "";
+    private string _chromeBoundProfile = "None";
     private string _chromeExtensionStatus = "Checking...";
     private string _chromeNativeBridgeStatus = "Checking...";
     private string _chromeNativeAttachedStatus = "Checking...";
@@ -218,10 +223,11 @@ public sealed class MainViewModel : ObservableObject
             () => RunIntegrationActionAsync("chrome.open_setup"));
         ChromeRepairBridgeCommand = new AsyncRelayCommand(
             () => RunIntegrationActionAsync("chrome.repair_bridge"));
-        ChromePairCommand = new AsyncRelayCommand(
-            () => RunIntegrationActionAsync("chrome.pair"));
-        ChromeAuthorizeCommand = new AsyncRelayCommand(
-            () => RunIntegrationActionAsync("chrome.authorize"));
+        ChromeRequestAccessCommand = new AsyncRelayCommand(
+            () => RunIntegrationActionAsync(
+                "chrome.request_access", SelectedChromeProfile));
+        ChromeDisconnectCommand = new AsyncRelayCommand(
+            () => RunIntegrationActionAsync("chrome.disconnect"));
         ArcMapOpenSetupCommand = new AsyncRelayCommand(
             () => RunIntegrationActionAsync("arcmap.open_setup"));
         ArcMapRepairBridgeCommand = new AsyncRelayCommand(
@@ -245,6 +251,8 @@ public sealed class MainViewModel : ObservableObject
     public ObservableCollection<ManagerRouterServiceRow> RouterServices { get; } = [];
 
     public ObservableCollection<ManagerApprovalRow> Approvals { get; } = [];
+
+    public ObservableCollection<string> ChromeProfileOptions { get; } = [];
 
     public ObservableCollection<ManagerTechnicalLogRow> TechnicalLogs { get; } = [];
 
@@ -334,9 +342,9 @@ public sealed class MainViewModel : ObservableObject
 
     public AsyncRelayCommand ChromeRepairBridgeCommand { get; }
 
-    public AsyncRelayCommand ChromePairCommand { get; }
+    public AsyncRelayCommand ChromeRequestAccessCommand { get; }
 
-    public AsyncRelayCommand ChromeAuthorizeCommand { get; }
+    public AsyncRelayCommand ChromeDisconnectCommand { get; }
 
     public AsyncRelayCommand ArcMapOpenSetupCommand { get; }
 
@@ -544,6 +552,23 @@ public sealed class MainViewModel : ObservableObject
 
     public string WebBridgeAuthorizationStatus =>
         WebBridgeAuthorized ? "Authorized" : "Not authorized";
+
+    public string SelectedChromeProfile
+    {
+        get => _selectedChromeProfile;
+        set => SetProperty(ref _selectedChromeProfile, value);
+    }
+
+    public string ChromeBoundProfile => _chromeBoundProfile;
+
+    public string ChromeConsentStatus =>
+        _chromePersistentConsent ? "Persistent - until Disconnect" : "Not approved";
+
+    public string ChromeReconnectStatus =>
+        _chromeReconnectAvailable ? "Enabled for this profile" : "Not available";
+
+    public string ChromeApprovedTabsStatus =>
+        _chromeApprovedTabCount.ToString();
 
     public string ChromeExtensionStatus
     {
@@ -1527,7 +1552,8 @@ public sealed class MainViewModel : ObservableObject
     }
 
     private async Task RunIntegrationActionAsync(
-        string action)
+        string action,
+        string? chromeProfile = null)
     {
         try
         {
@@ -1539,7 +1565,11 @@ public sealed class MainViewModel : ObservableObject
                     ManagerIntegrationActionResult>(
                     "integrations.action",
                     new ManagerIntegrationActionRequest(
-                        action));
+                        action,
+                        chromeProfile),
+                    timeout: action == "chrome.request_access"
+                        ? TimeSpan.FromSeconds(215)
+                        : TimeSpan.FromSeconds(30));
 
             ApplyIntegrationSnapshot(
                 result.Snapshot);
@@ -1571,6 +1601,34 @@ public sealed class MainViewModel : ObservableObject
             snapshot.ChromeNativeAttached
                 ? "Attached"
                 : "Not attached";
+
+        _chromeBoundProfile = string.IsNullOrWhiteSpace(snapshot.ChromeProfile)
+            ? "None" : snapshot.ChromeProfile;
+        _chromePersistentConsent = snapshot.ChromePersistentConsent;
+        _chromeReconnectAvailable = snapshot.ChromeReconnectAvailable;
+        _chromeApprovedTabCount = snapshot.ChromeApprovedTabCount;
+        Raise(nameof(ChromeBoundProfile));
+        Raise(nameof(ChromeConsentStatus));
+        Raise(nameof(ChromeReconnectStatus));
+        Raise(nameof(ChromeApprovedTabsStatus));
+
+        var previousSelection = SelectedChromeProfile;
+        ChromeProfileOptions.Clear();
+        foreach (var profile in snapshot.ChromeProfileOptions)
+        {
+            if (!string.IsNullOrWhiteSpace(profile))
+            {
+                ChromeProfileOptions.Add(profile);
+            }
+        }
+        var boundName = snapshot.ChromeProfile.Split('/')
+            .LastOrDefault()?.Trim() ?? "";
+        SelectedChromeProfile = ChromeProfileOptions.Contains(
+            previousSelection)
+                ? previousSelection
+                : ChromeProfileOptions.Contains(boundName)
+                    ? boundName
+                    : ChromeProfileOptions.FirstOrDefault() ?? "";
 
         ArcMapDesktopStatus =
             snapshot.ArcMapDesktopStatus;

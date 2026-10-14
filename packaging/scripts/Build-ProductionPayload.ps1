@@ -9,6 +9,8 @@ $OutputRoot = [IO.Path]::GetFullPath($OutputRoot)
 
 # Fail closed if a previously fixed production bug regresses.
 & (Join-Path $PSScriptRoot "Test-KnownBugRegressions.ps1") -Root $Root | Out-Null
+# Fail closed if Chrome Bridge reverts to legacy Pair + timed authorization.
+& (Join-Path $PSScriptRoot "Test-WebPersistentConsentBundle.ps1") -Root $Root | Out-Null
 
 if (Test-Path $OutputRoot) {
   throw "Staging output already exists. Refusing to overwrite: $OutputRoot"
@@ -227,13 +229,13 @@ Require-File (Join-Path $arcEngine "orchestrator\adapters\file_worker\arcgis_pro
 Require-File (Join-Path $arcEngine "orchestrator\adapters\file_worker\worker27.py")
 
 $arcSnapshot = Get-Content -LiteralPath (Join-Path $arcOut "runtime-tools.snapshot.json") -Raw | ConvertFrom-Json
-if ([int]$arcSnapshot.count -ne 151) {
-  throw "ArcMap RC10 source payload must declare 151 tools; snapshot reports $($arcSnapshot.count)."
+if ([int]$arcSnapshot.count -ne 160) {
+  throw "ArcMap RC11 candidate must declare 160 tools; snapshot reports $($arcSnapshot.count)."
 }
 
 $arcComponent = Get-Content -LiteralPath (Join-Path $arcOut "arcmap.component.json") -Raw | ConvertFrom-Json
-if ([int]$arcComponent.public_tools.count -ne 151) {
-  throw "ArcMap RC10 component metadata must declare 151 tools; metadata reports $($arcComponent.public_tools.count)."
+if ([int]$arcComponent.public_tools.count -ne 160) {
+  throw "ArcMap RC11 candidate metadata must declare 160 tools; metadata reports $($arcComponent.public_tools.count)."
 }
 
 $arcBridgeConfig = Get-Content -LiteralPath (Join-Path $arcEngine "arcmap_bridge\bridge_runtime.json") -Raw | ConvertFrom-Json

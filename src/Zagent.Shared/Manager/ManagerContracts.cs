@@ -346,10 +346,17 @@ public sealed record ManagerIntegrationSnapshot(
     string ArcMapMcpStatus,
     string ArcMapBridgeStatus,
     string ArcMapCurrentMxdStatus,
-    DateTimeOffset CapturedAtUtc);
+    DateTimeOffset CapturedAtUtc)
+{
+    public bool ChromePersistentConsent { get; init; }
+    public bool ChromeReconnectAvailable { get; init; }
+    public int ChromeApprovedTabCount { get; init; }
+    public IReadOnlyList<string> ChromeProfileOptions { get; init; } = Array.Empty<string>();
+}
 
 public sealed record ManagerIntegrationActionRequest(
-    string Action);
+    string Action,
+    string? ChromeProfile = null);
 
 public sealed record ManagerIntegrationActionResult(
     bool Success,

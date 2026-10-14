@@ -82,6 +82,8 @@ test("MV3 worker sends a stable per-profile instance identity and account email"
       onAlarm: { addListener: fn => alarm = fn }
     },
     windows: {
+      onCreated: { addListener() {} },
+      onRemoved: { addListener() {} },
       getAll: async () => [{
         id: 10,
         type: "normal",
@@ -95,6 +97,9 @@ test("MV3 worker sends a stable per-profile instance identity and account email"
       }]
     },
     tabs: {
+      onCreated: { addListener() {} },
+      onRemoved: { addListener() {} },
+      onUpdated: { addListener() {} },
       query: async () => {
         throw new Error("Legacy lastFocusedWindow selection must not be used.");
       }
@@ -254,7 +259,14 @@ test("profile mismatch is surfaced and does not expose a pairing button for anot
     },
     action: { setBadgeText: async () => {}, setBadgeBackgroundColor: async () => {} },
     alarms: { create: async () => {}, onAlarm: { addListener() {} } },
-    tabs: { query: async () => [] },
+    windows: {
+      onCreated: { addListener() {} }, onRemoved: { addListener() {} },
+      getAll: async () => []
+    },
+    tabs: {
+      query: async () => [], onCreated: { addListener() {} },
+      onRemoved: { addListener() {} }, onUpdated: { addListener() {} }
+    },
     debugger: { getTargets: async () => [] }
   };
 

@@ -14,7 +14,7 @@
       "2.1.0",
       "3.0.0"
     ],
-    "canonical_reason": "Frozen Stage 3 baseline 124 tools; Orchestrator +8 to 132; Native Layer Properties +6, Existing Grid/Graticule +6, Smart Corner +7 to 151."
+    "canonical_reason": "Frozen Stage 3 baseline 124 tools; Orchestrator +8 to 132; Native Layer Properties +6, Existing Grid/Graticule +6, Smart Corner +7 to 151; ARC-05..10 +9 to 160."
   },
   "engine": {
     "relative_path": "agents\\arcmap\\engine",
@@ -64,11 +64,11 @@
     "development_gateway": "18900-18999"
   },
   "public_tools": {
-    "count": 151,
+    "count": 160,
     "stage2": 8,
     "stage3": 20,
     "snapshot": "agents\\arcmap\\runtime-tools.snapshot.json",
-    "registry_capabilities": 151
+    "registry_capabilities": 160
   },
   "paths": {
     "engine_env": "ZAGENT_ARCMAP_ENGINE_ROOT",
@@ -119,7 +119,7 @@
   "validation": {
     "python3_compile": "PASS",
     "python27_arcgis_compile": "PASS",
-    "runtime_tools": "132/132 REGISTRY VERIFIED; live acceptance remains deferred by unit-only policy",
+    "runtime_tools": "160 SOURCE_DECLARED; live acceptance pending, do not infer production runtime acceptance",
     "stage2_loaded": true,
     "stage3_loaded": true,
     "visual_store_integration": "PASS",
@@ -183,6 +183,11 @@
       "status": "DEV_UNIT_PASS_NOT_LIVE_ACCEPTED",
       "tools": 7,
       "new_total": 151
+    },
+    "arc05_arc10": {
+      "status": "DEV_UNIT_TESTED_LIVE_ACCEPTANCE_PENDING",
+      "tools": 9,
+      "new_total": 160
     }
   }
 }

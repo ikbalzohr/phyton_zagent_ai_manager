@@ -271,9 +271,9 @@ $requiredArcMapGoalTools = @(
   'arcmap_goal_status',
   'arcmap_goal_validate'
 )
-if ([int]$toolSnapshotJson.count -ne 151 -or
+if ([int]$toolSnapshotJson.count -ne 160 -or
     -not ($toolSnapshotJson.tools -contains 'arcmap_window_capture')) {
-  throw "STEP12 regression: RC10 snapshot must declare 151 tools including arcmap_window_capture."
+  throw "STEP12 regression: RC11 snapshot must declare 160 tools including arcmap_window_capture."
 }
 foreach ($goalTool in $requiredArcMapGoalTools) {
   if (-not ($toolSnapshotJson.tools -contains $goalTool)) {

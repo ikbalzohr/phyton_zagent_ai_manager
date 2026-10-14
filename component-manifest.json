@@ -108,8 +108,8 @@
       "frozen_baseline": "_baseline_private\\arcmap-3.0.0",
       "baseline_sha256": "4365fc59d9ad87b31d0d991bc51d90c99e8df51057047ed4bca95501cfb6864a",
       "migration_status": "ZAGENT_INTEGRATED",
-      "public_tools": 151,
-      "capability_registry_entries": 151,
+      "public_tools": 160,
+      "capability_registry_entries": 160,
       "stage2_tools": 8,
       "stage3_tools": 20,
       "mcp_runtime": "Python 3.11.9",
@@ -153,9 +153,9 @@
     "router_tools": 24,
     "files_tools": 71,
     "web_tools": 151,
-    "connected_total_tools": 389,
+    "connected_total_tools": 398,
     "arcmap_runtime": "online",
-    "arcmap_tools": 151
+    "arcmap_tools": 160
   },
   "computer_vision_feedback_loop": {
     "status": "ARCMAP_STEP13_LIVE_PASS_SOURCE_NOT_BUNDLED",

@@ -1207,41 +1207,50 @@
                                                     <RowDefinition Height="Auto"/>
                                                     <RowDefinition Height="Auto"/>
                                                     <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
                                                 </Grid.RowDefinitions>
-
                                                 <TextBlock Text="Extension" Foreground="{StaticResource TextSecondary}" Margin="0,4"/>
-                                                <TextBlock Grid.Column="1" Text="{Binding ChromeExtensionStatus}" FontWeight="SemiBold" Margin="0,4"/>
-
-                                                <TextBlock Grid.Row="1" Text="Native Bridge" Foreground="{StaticResource TextSecondary}" Margin="0,4"/>
-                                                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding ChromeNativeBridgeStatus}" FontWeight="SemiBold" Margin="0,4"/>
-
+                                                <TextBlock Grid.Column="1" Text="{Binding ChromeExtensionStatus}" FontWeight="SemiBold" Margin="0,4" TextWrapping="Wrap"/>
+                                                <TextBlock Grid.Row="1" Text="Trusted Profile" Foreground="{StaticResource TextSecondary}" Margin="0,4"/>
+                                                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding ChromeBoundProfile}" FontWeight="SemiBold" Margin="0,4" TextWrapping="Wrap"/>
                                                 <TextBlock Grid.Row="2" Text="Connected" Foreground="{StaticResource TextSecondary}" Margin="0,4"/>
-                                                <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding WebBridgeConnectionStatus}" FontWeight="SemiBold" Margin="0,4"/>
-
+                                                <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding WebBridgeConnectionStatus}" FontWeight="SemiBold" Margin="0,4" TextWrapping="Wrap"/>
                                                 <TextBlock Grid.Row="3" Text="Authorized" Foreground="{StaticResource TextSecondary}" Margin="0,4"/>
-                                                <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding WebBridgeAuthorizationStatus}" FontWeight="SemiBold" Margin="0,4"/>
-
-                                                <TextBlock Grid.Row="4" Text="Native Attached" Foreground="{StaticResource TextSecondary}" Margin="0,4"/>
-                                                <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding ChromeNativeAttachedStatus}" FontWeight="SemiBold" Margin="0,4"/>
+                                                <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding WebBridgeAuthorizationStatus}" FontWeight="SemiBold" Margin="0,4" TextWrapping="Wrap"/>
+                                                <TextBlock Grid.Row="4" Text="Persistent Consent" Foreground="{StaticResource TextSecondary}" Margin="0,4"/>
+                                                <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding ChromeConsentStatus}" FontWeight="SemiBold" Margin="0,4" TextWrapping="Wrap"/>
+                                                <TextBlock Grid.Row="5" Text="Trusted Reconnect" Foreground="{StaticResource TextSecondary}" Margin="0,4"/>
+                                                <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding ChromeReconnectStatus}" FontWeight="SemiBold" Margin="0,4" TextWrapping="Wrap"/>
+                                                <TextBlock Grid.Row="6" Text="Native CDP" Foreground="{StaticResource TextSecondary}" Margin="0,4"/>
+                                                <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding ChromeNativeAttachedStatus}" FontWeight="SemiBold" Margin="0,4" TextWrapping="Wrap"/>
+                                                <TextBlock Grid.Row="7" Text="Approved Tabs" Foreground="{StaticResource TextSecondary}" Margin="0,4"/>
+                                                <TextBlock Grid.Row="7" Grid.Column="1" Text="{Binding ChromeApprovedTabsStatus}" FontWeight="SemiBold" Margin="0,4" TextWrapping="Wrap"/>
                                             </Grid>
-
-                                            <WrapPanel Margin="0,16,0,0">
-                                                <Button Content="Open Extension Setup"
-                                                        Command="{Binding ChromeOpenSetupCommand}"/>
-                                                <Button Content="Repair Bridge"
-                                                        Command="{Binding ChromeRepairBridgeCommand}"/>
-                                                <Button Content="Pair / Reconnect"
-                                                        Command="{Binding ChromePairCommand}"/>
-                                                <Button Content="Authorize"
-                                                        Command="{Binding ChromeAuthorizeCommand}"/>
-                                                <Button Content="Check"
-                                                        Command="{Binding RefreshIntegrationsCommand}"/>
+                                            <TextBlock Text="Chrome profile for the next access request"
+                                                       Foreground="{StaticResource TextSecondary}"
+                                                       Margin="0,14,0,4"/>
+                                            <ComboBox ItemsSource="{Binding ChromeProfileOptions}"
+                                                      SelectedItem="{Binding SelectedChromeProfile, Mode=TwoWay}"
+                                                      Width="250" HorizontalAlignment="Left"
+                                                      ToolTip="Choose a Chrome profile with the installed Zagent Bridge extension."/>
+                                            <WrapPanel Margin="0,12,0,0">
+                                                <Button Content="Request Access"
+                                                        Command="{Binding ChromeRequestAccessCommand}"
+                                                        Padding="12,6"/>
+                                                <Button Content="Disconnect"
+                                                        Command="{Binding ChromeDisconnectCommand}"
+                                                        Margin="8,0,0,0" Padding="12,6"/>
+                                                <Button Content="Refresh"
+                                                        Command="{Binding RefreshIntegrationsCommand}"
+                                                        Margin="8,0,0,0" Padding="12,6"/>
                                             </WrapPanel>
-                                            <TextBlock Text="DEV: setup membuka chrome://extensions dan folder extension source. Pair/Authorize tetap memerlukan approval user di popup Chrome Bridge."
+                                            <TextBlock Text="One Chrome profile is trusted at a time. Request Access replaces the old profile automatically. Click Approve once in that profile's Chrome Bridge popup. Permission persists after Chrome restart until Disconnect."
                                                        Foreground="{StaticResource TextSecondary}"
                                                        FontSize="11"
                                                        TextWrapping="Wrap"
-                                                       Margin="0,8,0,0"/>
+                                                       Margin="0,10,0,0"/>
                                         </StackPanel>
                                     </Border>
 

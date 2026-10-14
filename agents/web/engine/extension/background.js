@@ -151,11 +151,11 @@ async function handshake() {
   return request("handshake", {});
 }
 
-async function pairFromPending(requestId) {
+async function pairFromPending(requestId, persistentConsent = false) {
   let id = String(requestId || "").trim();
   if (!id) {
     const hand = await handshake();
-    if (hand.profileMismatch) {
+    if (hand.profileMismatch && !hand.pendingPair?.id) {
       throw new Error(`This Chrome profile does not match the trusted binding for ${hand.boundProfile?.name || "another profile"}.`);
     }
     if (!hand.pendingPair?.id) {
@@ -165,7 +165,7 @@ async function pairFromPending(requestId) {
     id = hand.pendingPair.id;
   }
 
-  const data = await request("pair-accept", { requestId: id });
+  const data = await request("pair-accept", { requestId: id, ...(persistentConsent ? { consentMode: "persistent-all-tabs-v1" } : {}) });
   const token = data.token;
   const reconnectSecret = data.reconnectSecret;
   if (!token || !reconnectSecret) throw new Error("Pairing response incomplete");
@@ -174,6 +174,14 @@ async function pairFromPending(requestId) {
   await chrome.storage.local.remove("pendingStop");
   delete data.token;
   delete data.reconnectSecret;
+  if (data.lease?.persistent) {
+    try {
+      const targetIds = await selectedTargets("all");
+      await authenticatedRequest("targets-sync", { targetIds });
+    } catch (error) {
+      data.warning = "Izin tersimpan; daftar tab belum sinkron: " + error.message;
+    }
+  }
   return data;
 }
 
@@ -233,7 +241,7 @@ async function selectedTargets(scope) {
     t => t.type === "page" && ids.has(t.tabId)
   );
 
-  if (!targets.length || targets.length !== tabs.length) {
+  if (scope !== "all" && (!targets.length || targets.length !== tabs.length)) {
     throw new Error("Some selected tabs have no CDP identity. Choose another scope or retry.");
   }
 
@@ -303,7 +311,16 @@ async function currentStatus() {
   }
 
   try {
-    const data = await authenticatedRequest("status");
+    let data = await authenticatedRequest("status");
+    if (data.authorized && data.lease?.persistent) {
+      try {
+        data = await authenticatedRequest("targets-sync", {
+          targetIds: await selectedTargets("all")
+        });
+      } catch (error) {
+        data.warning = "Menunggu sinkronisasi tab profil ini: " + error.message;
+      }
+    }
     return save({
       ...data,
       pendingPair: hand.pendingPair || null,
@@ -325,6 +342,24 @@ async function currentStatus() {
 }
 
 async function act(message) {
+  if (message.action === "approve") {
+    const hand = await handshake();
+    if (hand.pendingPair?.id) return save(await pairFromPending(hand.pendingPair.id, true));
+    const current = await currentStatus();
+    if (current.authorized && current.lease?.persistent) return current;
+    if (current.connected && !current.profileMismatch) {
+      const upgraded = await authenticatedRequest("consent-upgrade");
+      try {
+        await authenticatedRequest("targets-sync", {
+          targetIds: await selectedTargets("all")
+        });
+      } catch (error) {
+        upgraded.warning = "Izin tersimpan; sinkronisasi tab tertunda: " + error.message;
+      }
+      return save(upgraded);
+    }
+    throw new Error("Menunggu satu permintaan akses Zagent untuk profil Chrome ini.");
+  }
   if (message.action === "pair-request") {
     return save(await pairFromPending(message.requestId));
   }
@@ -442,6 +477,18 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
 
 chrome.alarms.onAlarm.addListener(() => { void enqueue({ action: "status" }); });
 chrome.runtime.onStartup.addListener(() => { void enqueue({ action: "status" }); });
+// New tabs/windows in this extension profile acquire access under the
+// previously approved durable consent, without another user prompt.
+let syncTimer;
+function scheduleTargetSync() {
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => { void enqueue({ action: "status" }); }, 600);
+}
+chrome.tabs.onCreated.addListener(scheduleTargetSync);
+chrome.tabs.onRemoved.addListener(scheduleTargetSync);
+chrome.tabs.onUpdated.addListener(scheduleTargetSync);
+chrome.windows.onCreated.addListener(scheduleTargetSync);
+chrome.windows.onRemoved.addListener(scheduleTargetSync);
 chrome.storage.session.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
 chrome.alarms.create("heartbeat", { periodInMinutes: 0.5 });
 void enqueue({ action: "status" });

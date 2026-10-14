@@ -102,6 +102,15 @@ public sealed class ManagerIntegrationService
                             : "Package present - not paired"
                     : "Not installed";
 
+        if (!webStatus.ProfileBound &&
+            webStatus.ExtensionHeartbeatDetected)
+        {
+            chromeExtensionStatus =
+                "Extension detected - " +
+                webStatus.ObservedExtensionCount.ToString() +
+                " profile(s); not yet approved";
+        }
+
         var chromeNativeBridgeStatus =
             webAgent?.Health == AgentHealthState.Ready
                 ? _environment == AgentEnvironment.Development
@@ -183,7 +192,13 @@ public sealed class ManagerIntegrationService
                     ? "Reachable"
                     : "Not attached",
             CapturedAtUtc:
-                DateTimeOffset.UtcNow);
+                DateTimeOffset.UtcNow)
+        {
+            ChromePersistentConsent = webStatus.PersistentConsent,
+            ChromeReconnectAvailable = webStatus.ReconnectAvailable,
+            ChromeApprovedTabCount = webStatus.ApprovedTabCount,
+            ChromeProfileOptions = webStatus.ProfileOptions
+        };
     }
 
     public async Task<ManagerIntegrationActionResult> RunAsync(
@@ -209,6 +224,13 @@ public sealed class ManagerIntegrationService
                         WebAgentManifestFactory.AgentId,
                         "Chrome/Web bridge restarted.",
                         cancellationToken),
+
+                "chrome.request_access" =>
+                    await RequestChromeAccessAsync(
+                        request.ChromeProfile, cancellationToken),
+
+                "chrome.disconnect" =>
+                    await _web.DisconnectTrustedProfileAsync(cancellationToken),
 
                 "chrome.pair" =>
                     await PairChromeAsync(
@@ -265,6 +287,55 @@ public sealed class ManagerIntegrationService
                 await SnapshotAsync(
                     CancellationToken.None));
         }
+    }
+
+    private async Task<string> RequestChromeAccessAsync(
+        string? profile,
+        CancellationToken cancellationToken)
+    {
+        var selected = profile?.Trim() ?? "";
+        if (string.IsNullOrWhiteSpace(selected))
+        {
+            throw new InvalidOperationException(
+                "Select a Chrome profile before requesting access.");
+        }
+
+        var choices = await _web.GetInstalledBridgeProfilesAsync(
+            cancellationToken);
+        if (!choices.Contains(
+                selected, StringComparer.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "Selected Chrome profile does not have the installed " +
+                "Zagent Bridge extension. Refresh Integrations first.");
+        }
+
+        var existing = await _web.GetBridgeStatusAsync(cancellationToken);
+        if (existing.ProfileBound)
+        {
+            var sameProfile =
+                selected.Equals(existing.ProfileName,
+                    StringComparison.OrdinalIgnoreCase) ||
+                selected.Equals(existing.ProfileDirectory,
+                    StringComparison.OrdinalIgnoreCase);
+
+            if (sameProfile &&
+                existing.Connected && existing.Authorized &&
+                existing.PersistentConsent)
+            {
+                return "Chrome " + selected +
+                    " already has persistent access until Disconnect.";
+            }
+            if (!sameProfile)
+            {
+                // Explicit new-profile request replaces the previous
+                // trusted binding, including its durable reconnect secret.
+                await _web.DisconnectTrustedProfileAsync(cancellationToken);
+            }
+        }
+
+        return await _web.RequestPersistentAccessAsync(
+            selected, cancellationToken);
     }
 
     private async Task<string> PairChromeAsync(

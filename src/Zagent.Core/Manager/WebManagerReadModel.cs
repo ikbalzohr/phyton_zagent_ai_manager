@@ -16,7 +16,13 @@ public sealed record WebBridgeManagerStatus(
     string ExpectedBridgeEndpoint,
     string BridgeEnvironment,
     string ProfileDirectory,
-    string ProfileName);
+    string ProfileName)
+{
+    public bool PersistentConsent { get; init; }
+    public bool ReconnectAvailable { get; init; }
+    public int ApprovedTabCount { get; init; }
+    public IReadOnlyList<string> ProfileOptions { get; init; } = Array.Empty<string>();
+}
 
 public sealed class WebManagerReadModel
 {
@@ -93,7 +99,113 @@ public sealed class WebManagerReadModel
             BridgeEnvironment:
                 String(root, "bridgeEnvironment") ?? "",
             ProfileDirectory: profileDirectory,
-            ProfileName: profileName);
+            ProfileName: profileName)
+        {
+            PersistentConsent = Bool(root, "persistentConsent"),
+            ReconnectAvailable = Bool(root, "reconnectAvailable"),
+            ApprovedTabCount = Int(root, "approvedTabCount") ?? 0,
+            ProfileOptions = await GetInstalledBridgeProfilesAsync(cancellationToken)
+        };
+    }
+
+    public async Task<IReadOnlyList<string>> GetInstalledBridgeProfilesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var launch = await CallToolForJsonAsync(
+                "web_chrome_launch_status", null, cancellationToken,
+                TimeSpan.FromSeconds(6));
+
+            if (!launch.RootElement.TryGetProperty(
+                    "bridgeExtensionProfiles", out var extensions) ||
+                extensions.ValueKind != JsonValueKind.Array)
+            {
+                return Array.Empty<string>();
+            }
+
+            var profiles = new List<string>();
+            foreach (var extension in extensions.EnumerateArray())
+            {
+                if (!extension.TryGetProperty(
+                        "profile", out var profile) ||
+                    profile.ValueKind != JsonValueKind.Object)
+                {
+                    continue;
+                }
+                var name = String(profile, "name");
+                var directory = String(profile, "directory");
+                var chosen = string.IsNullOrWhiteSpace(name) ? directory : name;
+                if (!string.IsNullOrWhiteSpace(chosen) &&
+                    !profiles.Contains(chosen, StringComparer.OrdinalIgnoreCase))
+                {
+                    profiles.Add(chosen);
+                }
+            }
+            return profiles.OrderBy(value => value, StringComparer.OrdinalIgnoreCase).ToArray();
+        }
+        catch
+        {
+            // Profile selector should not break the entire Manager snapshot.
+            return Array.Empty<string>();
+        }
+    }
+
+    public async Task<string> RequestPersistentAccessAsync(
+        string profile,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(profile))
+        {
+            throw new ArgumentException(
+                "Choose an exact Chrome profile before requesting access.",
+                nameof(profile));
+        }
+        using var result = await CallToolForJsonAsync(
+            "web_bridge_pair",
+            new { profile = profile.Trim(), expiresInSeconds = 180 },
+            cancellationToken, TimeSpan.FromSeconds(195));
+
+        var root = result.RootElement;
+        var outcome = String(root, "outcome") ?? "unknown";
+        if (!Bool(root, "connected") ||
+            !Bool(root, "authorized") ||
+            !Bool(root, "persistentConsent"))
+        {
+            throw new InvalidOperationException(
+                "Chrome access was not approved (" + outcome +
+                "). Open the chosen profile and click Approve in its Chrome Bridge popup.");
+        }
+        if (!root.TryGetProperty("profileBinding", out var binding) ||
+            binding.ValueKind != JsonValueKind.Object)
+        {
+            throw new InvalidOperationException("Missing verified Chrome profile binding.");
+        }
+        var boundDirectory = String(binding, "directory") ?? "";
+        var boundName = String(binding, "name") ?? "";
+        if (!profile.Equals(boundDirectory, StringComparison.OrdinalIgnoreCase) &&
+            !profile.Equals(boundName, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "Chrome Bridge bound a different profile than the one requested.");
+        }
+        return "Access approved for " + boundName + " (" +
+            boundDirectory + ") until Disconnect.";
+    }
+
+    public async Task<string> DisconnectTrustedProfileAsync(
+        CancellationToken cancellationToken = default)
+    {
+        using var result = await CallToolForJsonAsync(
+            "web_bridge_disconnect", null, cancellationToken,
+            TimeSpan.FromSeconds(25));
+        if (Bool(result.RootElement, "connected") ||
+            Bool(result.RootElement, "authorized") ||
+            Bool(result.RootElement, "profileBound"))
+        {
+            throw new InvalidOperationException("Chrome Disconnect was not confirmed.");
+        }
+        return "Chrome Bridge disconnected; profile binding and persistent approval revoked.";
     }
 
     public async Task<string> PairOrReconnectAsync(

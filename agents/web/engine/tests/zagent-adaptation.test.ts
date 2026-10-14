@@ -239,7 +239,8 @@ test("closed profile with installed Bridge is opened before pairing even when an
     assert.equal(payload.selectedProfile.directory, "Profile 14");
     assert.equal(payload.selectionSource, "installed-bridge-profile");
     assert.equal(payload.launchedChrome, true);
-    assert.equal(payload.expectedBridgeEndpoint, "http://127.0.0.3:19030/bridge/");
+    // Mock runtime omits Web port; strict resolver intentionally returns unknown.
+    assert.equal(payload.expectedBridgeEndpoint, "");
     assert.equal(payload.bridgeEnvironment, "DEVELOPMENT");
   } finally {
     (bridge as any).refresh = saved.refresh;
@@ -326,7 +327,7 @@ test("pair request becomes actionable only after matching Bridge heartbeat is ob
 
     assert.equal(requestedProfile.directory, "Profile 14");
     assert.equal(payload.selectedProfile.directory, "Profile 14");
-    assert.equal(payload.selectionSource, "installed-bridge-profile");
+    assert.equal(payload.selectionSource, "fresh-extension-heartbeat");
     assert.equal(payload.launchedChrome, false);
     assert.equal(payload.outcome, "timed_out");
   } finally {

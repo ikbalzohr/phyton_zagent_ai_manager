@@ -16,14 +16,19 @@ public static class ArcMapAgentManifestFactory
         "arcmap_apply_map_recipe",
         "arcmap_apply_symbology_from_layer",
         "arcmap_buffer",
+        "arcmap_calculate_geometry_xy",
         "arcmap_capture_layer_style",
         "arcmap_clear_selection",
         "arcmap_clip",
         "arcmap_compare_layer_extents",
+        "arcmap_connect_gis_mapserver",
         "arcmap_create_file_gdb",
         "arcmap_create_native_grid",
         "arcmap_delete_style_snapshot",
         "arcmap_dissolve",
+        "arcmap_edit_guard_acquire",
+        "arcmap_edit_guard_release",
+        "arcmap_edit_guard_status",
         "arcmap_erase_features",
         "arcmap_export_bundle",
         "arcmap_export_data_driven_pages_pdf",
@@ -66,6 +71,7 @@ public static class ArcMapAgentManifestFactory
         "arcmap_goal_status",
         "arcmap_goal_validate",
         "arcmap_gp_preflight",
+        "arcmap_import_coordinates_to_shp",
         "arcmap_inspect_current_map",
         "arcmap_intersect",
         "arcmap_list_fields",
@@ -73,6 +79,7 @@ public static class ArcMapAgentManifestFactory
         "arcmap_list_layout_elements",
         "arcmap_list_layout_text",
         "arcmap_list_native_grids",
+        "arcmap_list_native_scale_bars",
         "arcmap_list_style_snapshots",
         "arcmap_list_temporary_layers",
         "arcmap_merge_layers",
@@ -107,7 +114,9 @@ public static class ArcMapAgentManifestFactory
         "arcmap_set_layout_text",
         "arcmap_set_map_scale",
         "arcmap_set_native_grid_properties",
+        "arcmap_set_native_label_preset",
         "arcmap_set_native_layer_properties",
+        "arcmap_set_native_scale_bar",
         "arcmap_set_native_unique_values_renderer",
         "arcmap_set_title",
         "arcmap_set_unique_value_field",
@@ -292,6 +301,7 @@ public static class ArcMapAgentManifestFactory
 
     private static bool IsAdmin(string suffix) =>
         suffix is "save_current_map" or
+            "calculate_geometry_xy" or "import_coordinates_to_shp" or
             "smart_corner_commit" or "smart_corner_rollback" or
             "remove_native_grid" or
             "near" or

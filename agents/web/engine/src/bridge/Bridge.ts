@@ -42,6 +42,7 @@ export type Lease = {
   expiresAt: number | null;
   allowNavigation: boolean;
   allowNewTabs: boolean;
+  persistent?: boolean;
 };
 
 export type PairRequest = {
@@ -67,6 +68,10 @@ type Config = {
   pairingExpiresAt?: number;
   extensionOrigin?: string;
   reconnectHash?: string;
+  persistentConsent?: boolean;
+  consentScope?: "all";
+  consentSource?: "extension-popup-approve";
+  consentAt?: number;
   profileBinding?: ProfileBinding;
 };
 
@@ -87,6 +92,8 @@ export class Bridge {
   private pendingAuthorization: AuthorizationRequest | null = null;
   private reconnectRequestedAt: number | null = null;
   private observedExtensions = new Map<string, ObservedExtensionProfile>();
+  // CDP target IDs must be reported by the exact approved Chrome profile extension.
+  private approvedTargetIds = new Set<string>();
 
   private readonly eventLogFile = path.join(RUNTIME_DIR, "bridge-events.log");
 
@@ -216,6 +223,17 @@ export class Bridge {
     };
   }
 
+  private persistentLease(): Lease {
+    return {
+      scope: "all",
+      targets: [],
+      expiresAt: null,
+      allowNavigation: true,
+      allowNewTabs: true,
+      persistent: true,
+    };
+  }
+
   status() {
     const now = this.clock();
     const connected = Boolean(this.token) && now - this.lastSeen < 90_000;
@@ -229,6 +247,8 @@ export class Bridge {
       authorizationPending: connected ? this.activeAuthorization() : null,
       profileBinding: this.publicBinding(),
       profileBound: Boolean(this.config.profileBinding),
+      persistentConsent: Boolean(this.config.persistentConsent),
+      approvedTabCount: this.approvedTargetIds.size,
       engine: "native_cdp",
       revision: this.revision,
       heartbeatTimeoutSeconds: 90,
@@ -486,10 +506,15 @@ export class Bridge {
   }
 
   revoke(disconnect = false) {
-    this.lease = null;
+    // Durable user approval survives temporary CDP/worker disconnection.
+    // A new profile requires an explicit Disconnect and a new Approve.
+    this.lease = !disconnect && this.config.persistentConsent &&
+      Boolean(this.token) && this.clock() - this.lastSeen < 90_000
+        ? this.persistentLease() : null;
     this.pendingAuthorization = null;
     this.revision++;
     if (disconnect) {
+      this.approvedTargetIds.clear();
       this.token = "";
       this.lastSeen = 0;
     }
@@ -499,10 +524,17 @@ export class Bridge {
   private issueToken() {
     this.token = randomBytes(32).toString("hex");
     this.lastSeen = this.clock();
+    this.lease = this.config.persistentConsent ? this.persistentLease() : null;
+    this.approvedTargetIds.clear(); // new Chrome/CDP target IDs after restart
     return this.token;
   }
 
-  private async finishPair(origin: string, rawIdentity: ProfileIdentity, profile: ProfileHint) {
+  private async finishPair(
+    origin: string,
+    rawIdentity: ProfileIdentity,
+    profile: ProfileHint,
+    persistentConsent = false
+  ) {
     const identity = this.validateIdentity(rawIdentity);
     this.assertExpectedProfile(profile, identity);
 
@@ -512,6 +544,10 @@ export class Bridge {
       required: true,
       extensionOrigin: origin,
       reconnectHash: digest(reconnectSecret),
+      persistentConsent: Boolean(persistentConsent),
+      consentScope: "all",
+      consentSource: "extension-popup-approve",
+      consentAt: this.clock(),
       profileBinding: {
         directory: profile.directory,
         name: profile.name,
@@ -554,7 +590,12 @@ export class Bridge {
     return this.finishPair(origin, normalized, manualProfile);
   }
 
-  async acceptPairRequest(id: string, origin: string, identity: ProfileIdentity) {
+  async acceptPairRequest(
+    id: string,
+    origin: string,
+    identity: ProfileIdentity,
+    consentMode?: string
+  ) {
     await this.refresh();
     const pending = this.activePair();
     this.audit("pair_accept_attempt", {
@@ -581,7 +622,10 @@ export class Bridge {
       });
       throw new Error("This Zagent Web instance is already bound to a different extension origin.");
     }
-    const result = await this.finishPair(origin, normalized, pending.profile);
+    const result = await this.finishPair(
+      origin, normalized, pending.profile,
+      consentMode === "persistent-all-tabs-v1"
+    );
     this.audit("pair_accept_success", {
       requestId: id,
       profile: pending.profile.directory,
@@ -693,15 +737,54 @@ export class Bridge {
     return this.status();
   }
 
+  async upgradeConsent() {
+    if (!this.status().connected || !this.config.profileBinding) {
+      throw new Error("Trusted Chrome connection is required.");
+    }
+    const next: Config = {
+      ...this.config,
+      persistentConsent: true,
+      consentScope: "all",
+      consentSource: "extension-popup-approve",
+      consentAt: this.clock(),
+    };
+    await fs.writeFile(this.configFile, JSON.stringify(next, null, 2));
+    this.config = next;
+    this.lease = this.persistentLease();
+    this.pendingAuthorization = null;
+    this.approvedTargetIds.clear();
+    this.revision++;
+    return this.status();
+  }
+
+  syncTargets(ids: unknown) {
+    if (!this.status().connected || !this.config.persistentConsent) {
+      throw new Error("Persistent Chrome approval required.");
+    }
+    if (!Array.isArray(ids) || ids.length > 500 ||
+      ids.some(id => typeof id !== "string" || !/^[A-Za-z0-9-]{1,128}$/.test(id))) {
+      throw new Error("Invalid Chrome profile target identities.");
+    }
+    this.approvedTargetIds = new Set<string>(ids as string[]);
+    this.revision++;
+    return this.status();
+  }
+
   private leaseTarget(target: Target): Target | null {
     const state = this.status();
     if (!state.authorized || !state.lease) return null;
+    if (state.lease.persistent) {
+      return typeof target?.id === "string" &&
+        this.approvedTargetIds.has(target.id) &&
+        Number.isInteger(target.windowId) && typeof target.origin === "string"
+          ? target : null;
+    }
     return state.lease.targets.find(t => t.id === target.id && t.windowId === target.windowId) ?? null;
   }
 
   assertTarget(target: Target) {
     const match = this.leaseTarget(target);
-    if (!match || match.origin !== target.origin) {
+    if (!match || (!this.status().lease?.persistent && match.origin !== target.origin)) {
       throw new Error("Bridge authorization required for this tab, window and origin");
     }
   }
@@ -718,6 +801,7 @@ export class Bridge {
 
   commitNavigation(target: Target, nextOrigin: string) {
     const state = this.status();
+    if (state.lease?.persistent) return;
     if (!state.lease) throw new Error("Bridge authorization expired during navigation.");
     const match = state.lease.targets.find(t => t.id === target.id && t.windowId === target.windowId);
     if (!match) throw new Error("Authorized tab disappeared during navigation.");
@@ -736,6 +820,7 @@ export class Bridge {
 
   enrollNewTarget(source: Target, target: Target) {
     const state = this.status();
+    if (state.lease?.persistent) { this.assertNewTab(source); return; }
     if (!state.lease) throw new Error("Bridge authorization expired before the new tab was enrolled.");
     this.assertNewTab(source);
     if (state.lease.scope === "window" && target.windowId !== source.windowId) {
@@ -747,6 +832,7 @@ export class Bridge {
 
   removeTarget(id: string) {
     const state = this.status();
+    if (state.lease?.persistent) return;
     if (!state.lease) return;
     state.lease.targets = state.lease.targets.filter(t => t.id !== id);
     if (!state.lease.targets.length) this.lease = null;
@@ -863,7 +949,9 @@ export class Bridge {
         // Pair approval is latency-sensitive and must not wait behind reconnect/disconnect
         // operations queued on the general bridge serial tail. requestId validation plus
         // profile-bound identity checks make this path safe to execute directly.
-        reply(200, await this.acceptPairRequest(String(body.requestId ?? ""), origin, identity));
+        reply(200, await this.acceptPairRequest(
+          String(body.requestId ?? ""), origin, identity, body.consentMode
+        ));
         return;
       }
       if (route === "/bridge/reconnect") {
@@ -875,6 +963,14 @@ export class Bridge {
 
       if (route === "/bridge/status") {
         reply(200, { ...this.status(), nativeAttached: native() });
+        return;
+      }
+      if (route === "/bridge/targets-sync") {
+        reply(200, this.syncTargets(body.targetIds));
+        return;
+      }
+      if (route === "/bridge/consent-upgrade") {
+        reply(200, await this.serial(() => this.upgradeConsent()));
         return;
       }
       if (route === "/bridge/revoke") {

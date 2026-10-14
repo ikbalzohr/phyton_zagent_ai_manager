@@ -16,12 +16,26 @@ required = (
     "Zagent.Core.exe",
     "Zagent.Manager.exe",
     "Zagent.Setup.exe",
+    "agents/web/engine/dist/bridge/Bridge.js",
+    "agents/web/engine/dist/tools/bridge.js",
+    "agents/web/engine/extension/background.js",
+    "agents/web/engine/extension/popup.html",
+    "agents/web/engine/extension/popup.js",
+    "agents/web/engine/extension/popup.css",
     "agents/arcmap/engine/arcmap_bridge/core/smart_corner_geometry.py",
     "agents/arcmap/engine/arcmap_bridge/features/smart_corner.py",
     "agents/arcmap/engine/mcp_server/tools/smart_corner.py",
     "agents/arcmap/engine/arcmap_bridge/features/native_layer_properties.py",
     "agents/arcmap/engine/arcmap_bridge/features/native_grids.py",
     "agents/arcmap/engine/mcp_server/window_capture.py",
+    "agents/arcmap/engine/mcp_server/tools/arc_backlog.py",
+    "agents/arcmap/engine/arcmap_bridge/core/concurrent_edit_guard.py",
+    "agents/arcmap/engine/arcmap_bridge/features/native_label_preset.py",
+    "agents/arcmap/engine/arcmap_bridge/features/gis_server_connector.py",
+    "agents/arcmap/engine/arcmap_bridge/features/native_scale_bar.py",
+    "agents/arcmap/engine/arcmap_bridge/features/concurrent_edit.py",
+    "agents/arcmap/engine/arcmap_bridge/features/calculate_geometry.py",
+    "agents/arcmap/engine/arcmap_bridge/features/smart_coordinate_importer.py",
     "agents/arcmap/runtime-tools.snapshot.json",
     "agents/arcmap/arcmap.component.json",
     "payload-manifest.json",
@@ -81,10 +95,27 @@ with zipfile.ZipFile(zip_path, "r") as archive:
         if name not in actual:
             raise AssertionError(f"Required bundled source missing: {name}")
     print("VERIFY_REQUIRED_FILES=PASS")
+    web_checks = {
+        "agents/web/engine/dist/bridge/Bridge.js": ("persistentConsent", "approvedTargetIds", "targets-sync", "consent-upgrade"),
+        "agents/web/engine/dist/tools/bridge.js": ("approved_persistent", "fresh-extension-heartbeat"),
+        "agents/web/engine/extension/background.js": ("persistent-all-tabs-v1", "targets-sync", "consent-upgrade", "chrome.tabs.onCreated"),
+        "agents/web/engine/extension/popup.js": ('act("approve")', 'act("disconnect")'),
+    }
+    for rel, tokens in web_checks.items():
+        payload = archive.read(rel).decode("utf-8-sig")
+        for token in tokens:
+            if token not in payload:
+                raise AssertionError(f"Chrome Bridge feature missing in bundle: {rel} {token}")
+    popup = archive.read("agents/web/engine/extension/popup.html").decode("utf-8-sig")
+    if 'id="approve"' not in popup or 'id="disconnect"' not in popup:
+        raise AssertionError("Chrome Bridge Approve/Disconnect buttons missing")
+    if 'id="pair"' in popup or 'id="authorize"' in popup:
+        raise AssertionError("Legacy Chrome Bridge buttons found")
+    print("VERIFY_CHROME_PERSISTENT_BRIDGE=PASS")
     s = json.loads(archive.read("agents/arcmap/runtime-tools.snapshot.json").decode("utf-8-sig"))
     arc = json.loads(archive.read("agents/arcmap/arcmap.component.json").decode("utf-8-sig"))
-    assert_equal("ARCMAP_DECLARED_TOOLS", int(s["count"]), 151)
-    assert_equal("ARCMAP_COMPONENT_TOOLS", int(arc["public_tools"]["count"]), 151)
+    assert_equal("ARCMAP_DECLARED_TOOLS", int(s["count"]), 160)
+    assert_equal("ARCMAP_COMPONENT_TOOLS", int(arc["public_tools"]["count"]), 160)
     entries = {e["path"]: e for e in manifest["files"]}
     for name in required:
         if name == "payload-manifest.json":
