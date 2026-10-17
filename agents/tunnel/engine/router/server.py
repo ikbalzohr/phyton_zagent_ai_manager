@@ -7,6 +7,7 @@ import logging
 import os
 import threading
 import time
+import uuid
 from datetime import datetime
 from pathlib import Path
 from contextlib import asynccontextmanager
@@ -70,6 +71,33 @@ if _PLUGIN_AUDIENCE in {"zagent-production", "tryplugin"}:
 _PLUGIN_PARENT_AUDIENCE = os.environ.get(
     "ZAGENT_PLUGIN_PARENT_AUDIENCE", "zagent-production"
 ).strip().lower()
+
+# Generic MCP hosts (for example a Claude custom connector) do not send the
+# OpenAI session metadata, so without a session id they can never be approved.
+# Opt-in only (default OFF, behaviour unchanged for ChatGPT):
+#   ZAGENT_MCP_HOST_SESSIONS=1        derive the chat session from the standard
+#                                     Mcp-Session-Id header, which this router
+#                                     issues on initialize.
+#   ZAGENT_MCP_HOST_CLIENTS=claude    comma list of substrings of
+#                                     clientInfo.name that receive an
+#                                     Mcp-Session-Id ("*" = every client).
+#   ZAGENT_MCP_HOST_FIXED_SESSION=x   OPTIONAL last resort: when no
+#                                     Mcp-Session-Id arrives (a proxy strips
+#                                     it), treat the whole connector as ONE
+#                                     session. All chats then share one
+#                                     approval. Leave empty to fail closed.
+# OpenAI sessions always win and keep their own namespace.
+_MCP_HOST_SESSIONS = os.environ.get(
+    "ZAGENT_MCP_HOST_SESSIONS", ""
+).strip().lower() in {"1", "true", "yes", "on"}
+_MCP_HOST_CLIENTS = tuple(
+    x.strip().lower()
+    for x in os.environ.get("ZAGENT_MCP_HOST_CLIENTS", "claude").split(",")
+    if x.strip()
+)
+_MCP_HOST_FIXED_SESSION = os.environ.get(
+    "ZAGENT_MCP_HOST_FIXED_SESSION", ""
+).strip()
 
 
 def _with_device_provenance(result: Any, ctx: Any = None) -> Any:
@@ -210,6 +238,110 @@ def _save_chat_registry(data: dict[str, Any]) -> None:
     tmp.replace(_CHAT_REGISTRY_PATH)
 
 
+# --- host (client) detection --------------------------------------------------
+# One decision point: which kind of MCP client is calling? Used for (a) labels
+# in the Manager chat log and (b) a one-time diagnostic log line. It is
+# client-asserted (clientInfo.name / User-Agent / _meta), so it must NEVER be
+# used to relax the plugin access guard. Session derivation stays in
+# _resolve_chat_identity; the access guard is identical for every host.
+_HOST_LABELS = {
+    "openai": "ChatGPT",
+    "claude": "Claude",
+    "codex": "Codex",
+    "mcp": "MCP Client",
+}
+_MCP_SESSION_CLIENTS: dict[str, str] = {}
+_MCP_SESSION_CLIENTS_MAX = 512
+_MCP_SESSION_CLIENTS_LOCK = threading.Lock()
+_HOST_SEEN: set[str] = set()
+_HOST_SEEN_MAX = 2048
+
+
+def _remember_mcp_client(mcp_session_id: str, client_name: str) -> None:
+    if not mcp_session_id or not client_name:
+        return
+    with _MCP_SESSION_CLIENTS_LOCK:
+        if len(_MCP_SESSION_CLIENTS) >= _MCP_SESSION_CLIENTS_MAX:
+            _MCP_SESSION_CLIENTS.pop(next(iter(_MCP_SESSION_CLIENTS)), None)
+        _MCP_SESSION_CLIENTS[mcp_session_id] = client_name[:80]
+
+
+def _client_name_from_request(request: Request, request_meta: dict[str, Any]) -> str:
+    mcp_sid = str(request.headers.get("mcp-session-id") or "").strip()
+    if mcp_sid:
+        with _MCP_SESSION_CLIENTS_LOCK:
+            known = _MCP_SESSION_CLIENTS.get(mcp_sid)
+        if known:
+            return known
+    # Self-contained (sessionless) requests may carry client info in _meta.
+    for key, value in request_meta.items():
+        if str(key).lower().endswith("clientinfo") and isinstance(value, dict):
+            name = str(value.get("name") or "").strip()
+            if name:
+                return name[:80]
+    return ""
+
+
+def _has_openai_signal(request: Request, request_meta: dict[str, Any]) -> bool:
+    return any(str(k).startswith("openai/") for k in request_meta) or any(
+        str(h).lower().startswith("x-openai-") for h in request.headers.keys()
+    )
+
+
+def _host_kind(request: Request, request_meta: dict[str, Any], client_name: str = "") -> str:
+    probe = f"{client_name} {request.headers.get('user-agent', '')}".lower()
+    if "codex" in probe:
+        return "codex"
+    if "claude" in probe:
+        return "claude"
+    if _has_openai_signal(request, request_meta):
+        return "openai"
+    return "mcp"
+
+
+def _host_label(identity: dict[str, Any] | None) -> str:
+    # A missing "host" means an identity built before host detection existed:
+    # keep the historical ChatGPT label so nothing changes for ChatGPT.
+    return _HOST_LABELS.get(str((identity or {}).get("host") or "openai"), "MCP Client")
+
+
+def _log_host_once(
+    host: str,
+    session_source: str,
+    client_name: str,
+    request: Request,
+    request_meta: dict[str, Any],
+) -> None:
+    ua = str(request.headers.get("user-agent") or "")[:60]
+    key = f"{host}|{session_source}|{client_name}|{ua}"
+    if key in _HOST_SEEN:
+        return
+    if len(_HOST_SEEN) >= _HOST_SEEN_MAX:
+        _HOST_SEEN.clear()
+    _HOST_SEEN.add(key)
+    meta_keys = sorted(str(k)[:40] for k in request_meta)[:12]
+    log.info(
+        "host detected: kind=%s session_source=%s client=%r user_agent=%r meta_keys=%s",
+        host, session_source or "none", client_name, ua, meta_keys,
+    )
+    # The supervisor does not capture router stdout/stderr, so also keep the
+    # evidence in the runtime directory (signal NAMES only, never session values).
+    try:
+        row = {
+            "time": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "kind": host,
+            "session_source": session_source or "none",
+            "client": client_name,
+            "user_agent": ua,
+            "meta_keys": meta_keys,
+        }
+        _RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+        with (_RUNTIME_DIR / "host_detection.jsonl").open("a", encoding="utf-8") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
 def _derive_chat_session(raw_session: str) -> str:
     digest = hashlib.sha256(raw_session.encode("utf-8", errors="ignore")).hexdigest()[:16]
     return f"chat_{digest}"
@@ -220,11 +352,26 @@ def _resolve_chat_identity(request: Request, params: dict[str, Any], tool_name: 
     if not isinstance(request_meta, dict):
         request_meta = {}
 
+    client_name = _client_name_from_request(request, request_meta)
+    host = _host_kind(request, request_meta, client_name)
+
     raw_session = str(
         request_meta.get("openai/session")
         or request.headers.get("x-openai-session")
         or ""
     ).strip()
+    session_source = "openai" if raw_session else ""
+
+    if not raw_session and _MCP_HOST_SESSIONS:
+        mcp_sid = str(request.headers.get("mcp-session-id") or "").strip()
+        if mcp_sid:
+            raw_session = "mcp-session:" + mcp_sid
+            session_source = "mcp-session-id"
+        elif _MCP_HOST_FIXED_SESSION:
+            raw_session = "mcp-fixed:" + _MCP_HOST_FIXED_SESSION
+            session_source = "mcp-fixed"
+
+    _log_host_once(host, session_source, client_name, request, request_meta)
 
     explicit_title = str(
         request_meta.get("openai/conversationTitle")
@@ -241,6 +388,7 @@ def _resolve_chat_identity(request: Request, params: dict[str, Any], tool_name: 
             "title": explicit_title,
             "display": explicit_title,
             "host_session_available": False,
+            "host": host,
         }
 
     session_id = _derive_chat_session(raw_session)
@@ -284,6 +432,7 @@ def _resolve_chat_identity(request: Request, params: dict[str, Any], tool_name: 
         "title": title,
         "display": display,
         "host_session_available": True,
+        "host": host,
     }
 
 
@@ -379,7 +528,7 @@ def _append_auto_chat_activity(identity: dict[str, Any], service_id: str, tool_n
     payload = {
         "time": datetime.now().astimezone().isoformat(timespec="seconds"),
         "role": "activity",
-        "source": "ChatGPT Activity",
+        "source": f"{_host_label(identity)} Activity",
         "message": f"{service_label} · {_activity_summary(tool_name, arguments)}",
         "chat_id": identity.get("session_id"),
         "chat_alias": identity.get("alias"),
@@ -408,13 +557,13 @@ def _append_chat_progress(identity: dict[str, Any], message: Any) -> bool:
     payload = {
         "time": datetime.now().astimezone().isoformat(timespec="seconds"),
         "role": "assistant",
-        "source": "ChatGPT",
+        "source": _host_label(identity),
         "message": text,
         "chat_id": session_id,
         "chat_alias": identity.get("alias"),
         "chat_title": identity.get("title"),
         "tool": "",
-        "agent": "ChatGPT",
+        "agent": _host_label(identity),
     }
 
     try:
@@ -1682,12 +1831,32 @@ async def mcp(request: Request):
 
         if method == "initialize":
             requested = str(params.get("protocolVersion", "2025-11-25"))
-            return rpc_result(req_id, {
+            response = rpc_result(req_id, {
                 "protocolVersion": _negotiate_handshake_version(requested),
                 "capabilities": {"tools": {"listChanged": True}},
                 "serverInfo": SERVER_INFO,
                 "instructions": SERVER_INSTRUCTIONS,
             })
+            client_info = params.get("clientInfo")
+            client_name = (
+                str(client_info.get("name") or "").strip()
+                if isinstance(client_info, dict)
+                else ""
+            )
+            log.info("MCP initialize clientInfo.name=%r", client_name)
+            if (
+                _MCP_HOST_SESSIONS
+                and not request.headers.get("mcp-session-id")
+                and not request.headers.get("x-openai-session")
+                and (
+                    "*" in _MCP_HOST_CLIENTS
+                    or any(m in client_name.lower() for m in _MCP_HOST_CLIENTS)
+                )
+            ):
+                issued_session_id = uuid.uuid4().hex
+                response.headers["Mcp-Session-Id"] = issued_session_id
+                _remember_mcp_client(issued_session_id, client_name)
+            return response
 
         if method in {"notifications/initialized", "notifications/cancelled"}:
             return Response(status_code=202)
